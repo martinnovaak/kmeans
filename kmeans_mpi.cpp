@@ -13,7 +13,7 @@ const double THRESHOLD = 0.00001; // Threshold to consider centers as "almost th
 
 // Function to calculate Euclidean distance between two points
 double euclidean_distance(double x1, double y1, double x2, double y2) {
-    return sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y2 - y2));
+    return sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
 }
 
 // Function to compare old and new centers
