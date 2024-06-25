@@ -28,8 +28,7 @@ bool are_centers_almost_the_same(const std::vector<Point>& old_centers,
     return true;
 }
 
-void load_points(std::vector<Point> & points, std::string filename) {
-
+void load_points(std::vector<Point>& points, std::string filename) {
     std::ifstream input_file(filename);
     if (!input_file) {
         std::cerr << "Error opening file!" << std::endl;
@@ -60,7 +59,7 @@ void load_initial_centroids(std::vector<Point>& centroids, int number_of_cluster
     centers_file.close();
 }
 
-void calculate_clusters(std::vector<int> & clusters, const std::vector<Point> & local_points, const std::vector<Point> & old_centroids, const int number_of_clusters) {
+void calculate_clusters(std::vector<int>& clusters, const std::vector<Point>& local_points, const std::vector<Point>& old_centroids, const int number_of_clusters) {
     // Assign points to clusters
     for (size_t i = 0; i < clusters.size(); ++i) {
         double min_distance = std::numeric_limits<double>::max();
@@ -101,7 +100,7 @@ void initialize_mpi(int argc, char* argv[], int& rank, int& size, int& K) {
 }
 
 // Function to scatter points across processes
-void scatter_points(int rank, int size, std::vector<Point>& points, std::vector<Point>& local_points, 
+void scatter_points(int rank, int size, std::vector<Point>& points, std::vector<Point>& local_points,
     std::vector<int>& counts, std::vector<int>& displacements
 ) {
     int total_points = points.size();
@@ -178,6 +177,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<Point> points;
     std::vector<Point> old_centroids(K);
+
     // Read data from file on rank 0
     if (rank == 0) {
         load_points(points, "data.txt");
@@ -202,12 +202,12 @@ int main(int argc, char* argv[]) {
 
     bool centers_almost_same = false;
     int iteration = 0;
-    std::vector<int> global_assignments(total_points); // Allocate space for global assignments
+    std::vector<int> global_assignments(total_points, 0); // Initialize global_assignments with zeros
     std::vector<Point> final_centers(K); // Allocate space for final centers
+    std::vector<int> local_assignments(local_points.size()); // Initialize local_assignments
 
     while (true) {
         // Assign points to clusters
-        std::vector<int> local_assignments(local_points.size());
         calculate_clusters(local_assignments, local_points, old_centroids, K);
 
         // Calculate local sums and counts for new cluster centers
@@ -244,14 +244,33 @@ int main(int argc, char* argv[]) {
         // Broadcast the termination flag
         MPI_Bcast(&centers_almost_same, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
 
-        // Gather all assignments to rank 0 at the end of the loop
-        MPI_Gatherv(local_assignments.data(), local_assignments.size(), MPI_INT,
-            global_assignments.data(), counts.data(), displacements.data(), MPI_INT, 0, MPI_COMM_WORLD);
-
         if (centers_almost_same) {
             break;
         }
     }
+
+    // Prepare recv_counts and displs for MPI_Gatherv
+    std::vector<int> recv_counts(size);
+    std::vector<int> displs(size);
+
+    // All ranks send their local assignment sizes to rank 0
+    int local_size = local_assignments.size();
+    MPI_Gather(&local_size, 1, MPI_INT, recv_counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Rank 0 calculates displacements
+    if (rank == 0) {
+        displs[0] = 0;
+        for (int i = 1; i < size; ++i) {
+            displs[i] = displs[i - 1] + recv_counts[i - 1];
+        }
+
+        // Resize global assignments vector if necessary
+        global_assignments.resize(displs[size - 1] + recv_counts[size - 1]);
+    }
+
+    // Gather all assignments to rank 0 at the end of the loop
+    MPI_Gatherv(local_assignments.data(), local_assignments.size(), MPI_INT,
+        global_assignments.data(), recv_counts.data(), displs.data(), MPI_INT, 0, MPI_COMM_WORLD);
 
     // Measure the end time and print the elapsed time
     double end_time = MPI_Wtime();
